@@ -126,10 +126,6 @@ def reconnect():
     clear_session()
     return False
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Login
-# ─────────────────────────────────────────────────────────────────────────────
 def login():
     global conn, token, session_id, songs, all_songs, history, playlists, username
     print("            Welcome to DeltaPlay. Please Login.")
