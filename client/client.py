@@ -10,7 +10,7 @@ import tempfile
 import vlc
 from banner import *
 
-HOST = "127.0.0.1"
+HOST = "localhost"
 PORT = 8080
 
 CHUNK_SIZE = 128
@@ -114,8 +114,8 @@ def reconnect():
             send_json(new_conn, {"type": "RECONNECT", "token": tok, "session_id": sid})
             mt, resp = recv_msg(new_conn)
             if mt == "json" and resp.get("status") == "ok":
-                conn       = new_conn
-                token      = tok
+                conn = new_conn
+                token = tok
                 session_id = sid
                 out(f"[reconnect] success, resuming at chunk {resp.get('resumed_at_chunk', 0)}")
                 return True
@@ -392,7 +392,7 @@ def cmd_create_playlist(rest):
         "command":  "CREATE_PLAYLIST",
         "token": token,
         "name": name,
-        "song_ids": song_ids,
+        "song_id": song_ids,
     })
     print(f"Creating playlist '{name}' with {len(song_ids)} song(s)...")
 
