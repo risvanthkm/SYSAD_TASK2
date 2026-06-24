@@ -10,9 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
 
-# ── FIX: pg_dump path now read from env so it works on any machine/OS.
-#         backup dir is created if missing.
-#         errors are caught and logged instead of silently swallowed.
+
 def backup_thread_fn():
     pg_dump_path = r"C:\\Program Files\\PostgreSQL\\18\\bin\\pg_dump.exe"
     db_name      = os.getenv("DB_NAME", "deltaplay")
@@ -72,17 +70,12 @@ def ban_ip(IP, reason, days, cur, db_conn):
 
 
 def check_banned(ip, cur):
-    # Also filter out expired bans so they don't block legitimate users
     cur.execute(
         "SELECT ban_id FROM active_bans WHERE ip = %s AND expires_at > NOW()",
         (ip,),
     )
     return cur.fetchone() is not None
 
-
-# FIX: removed row-constructor parens — SELECT (col) returns an opaque record
-#      string in psycopg2; SELECT col returns actual values.
-# FIX: datetime objects aren't JSON-serialisable; convert to isoformat strings.
 def send_data(conn, user_id, cur):
     cur.execute("SELECT song_id, artist, genre, title FROM tracks")
     songs = [
@@ -107,14 +100,8 @@ def send_data(conn, user_id, cur):
 
     payload = {"songs": songs, "history": history, "saved_playlists": saved_pl}
 
-    # FIX: frame the message with a 4-byte length header so the client knows
-    #      where JSON ends and binary audio chunks begin.
     send_json(conn, payload)
 
-
-# ── Framing helpers ──────────────────────────────────────────────────────────
-# Every JSON message is prefixed with a 4-byte big-endian length so both
-# sides can distinguish control messages from raw audio chunks.
 
 MSG_TYPE_JSON  = b'\x01'
 MSG_TYPE_AUDIO = b'\x02'
