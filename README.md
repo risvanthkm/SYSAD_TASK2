@@ -22,7 +22,7 @@
 
 </div>
 
-> A secure application that streams music over **TCP**, with all connections encrypted using **TLS** and **JWT-based authentication** securing every client request. It features adaptive **FFmpeg** transcoding with heartbeat-driven network quality monitoring, **Semaphore-based** scheduling to limit concurrent transcoding tasks, cached transcoded audio with **automatic cache cleanup**, and **seamless client reconnection**. The application also integrates **yt-dlp** for automated YouTube audio downloads, performs filename and metadata sanitization, applies download rate limiting, and provides real-time music **library synchronization** across all connected clients.
+*A secure application that streams music over **TCP**, with all connections encrypted using **TLS** and **JWT-based authentication** securing every client request. It features adaptive **FFmpeg** transcoding with heartbeat-driven network quality monitoring, **Semaphore-based** scheduling to limit concurrent transcoding tasks, cached transcoded audio with **automatic cache cleanup**, and **seamless client reconnection**. The application also integrates **yt-dlp** for automated YouTube audio downloads, performs filename and metadata sanitization, applies download rate limiting, and provides real-time music **library synchronization** across all connected clients.*
  
 
 ---
