@@ -6,15 +6,15 @@ banner = r"""
 ██████╔╝███████╗███████╗██║   ██║  ██║██║     ███████╗██║  ██║   ██║
 ╚═════╝ ╚══════╝╚══════╝╚═╝   ╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝   ╚═╝
 
-                Secure Music Streaming Platform
+                Music Streaming Platform for SysADs
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Stream music over secure TCP/TLS connections
   JWT Authentication & Session Management
   Adaptive Bitrate Audio Streaming
-  Smart Playlist & History Management
   FFmpeg Powered Audio Processing
+  Songs playable using Youtube links
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -26,7 +26,7 @@ HELP_TEXT = """
 ║                           DELTAPLAY COMMANDS                               ║
 ╚════════════════════════════════════════════════════════════════════════════╝
 
->> MUSIC CONTROL
+🕹️ MUSIC CONTROL
 
   list
       Show currently loaded songs.
@@ -55,7 +55,7 @@ HELP_TEXT = """
 
 ______________________________________________________________________________
 
->> PLAYLISTS
+📂 PLAYLISTS
 
 
   playlists
@@ -81,7 +81,7 @@ ______________________________________________________________________________
 
 ______________________________________________________________________________
 
->> DOWNLOADS
+⬇️ DOWNLOADS
 
   download <links.txt>
       Read YouTube URLs from a text file and download
@@ -92,14 +92,14 @@ ______________________________________________________________________________
 
 ______________________________________________________________________________
           
->> HISTORY
+🕘 HISTORY
 
   history
       Show previously played tracks.
 
 ______________________________________________________________________________
       
->> SYSTEM
+⚙️ SYSTEM 
 
   help
       Show this menu.

@@ -1,4 +1,3 @@
-import threading
 import json
 import jwt
 import time
@@ -12,7 +11,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 
 
 def backup_thread_fn():
-    pg_dump_path = r"C:\\Program Files\\PostgreSQL\\18\\bin\\pg_dump.exe"
+    pg_dump_path = "pg_dump"
     db_name      = os.getenv("DB_NAME", "deltaplay")
     db_user      = os.getenv("DB_USER", "postgres")
     backup_dir   = os.getenv("BACKUP_DIR", "backups")
@@ -76,6 +75,51 @@ def check_banned(ip, cur):
     )
     return cur.fetchone() is not None
 
+
+def save_playback_progress(db_conn, cur, user_id, song_id, chunk):
+    cur.execute(
+        """
+        INSERT INTO playback_progress (user_id, song_id, chunk_offset, updated_at)
+        VALUES (%s, %s, %s, NOW())
+        ON CONFLICT (user_id)
+        DO UPDATE SET song_id = EXCLUDED.song_id,
+        chunk_offset = EXCLUDED.chunk_offset,
+        updated_at = NOW()
+        """,
+        (user_id, song_id, chunk),
+    )
+    db_conn.commit()
+
+
+def get_playback_progress(cur, user_id):
+    cur.execute(
+        """
+        SELECT pp.song_id, pp.chunk_offset, t.title, t.artist, t.file_path
+        FROM playback_progress pp
+        JOIN tracks t ON t.song_id = pp.song_id
+        WHERE pp.user_id = %s
+        """,
+        (user_id,),
+    )
+    row = cur.fetchone()
+
+    if row is None:
+        return None
+    
+    return {
+        "song_id":      row[0],
+        "chunk_offset": row[1],
+        "title":        row[2],
+        "artist":       row[3],
+        "file_path":    row[4],
+    }
+
+
+def clear_playback_progress(db_conn, cur, user_id):
+    cur.execute("DELETE FROM playback_progress WHERE user_id = %s", (user_id,))
+    db_conn.commit()
+
+
 def send_data(conn, user_id, cur):
     cur.execute("SELECT song_id, artist, genre, title FROM tracks")
     songs = [
@@ -98,7 +142,9 @@ def send_data(conn, user_id, cur):
         {"playlist_id": r[0], "playlist_name": r[1]} for r in cur.fetchall()
     ]
 
-    payload = {"songs": songs, "history": history, "saved_playlists": saved_pl}
+    resume = get_playback_progress(cur, user_id)
+
+    payload = {"songs": songs, "history": history, "saved_playlists": saved_pl, "resume": resume}
 
     send_json(conn, payload)
 
@@ -106,11 +152,13 @@ def send_data(conn, user_id, cur):
 MSG_TYPE_JSON  = b'\x01'
 MSG_TYPE_AUDIO = b'\x02'
 
+
 def send_json(sock, obj):
     """Send a JSON control message with a 1-byte type tag + 4-byte length."""
     data = json.dumps(obj).encode()
     header = MSG_TYPE_JSON + len(data).to_bytes(4, "big")
     sock.sendall(header + data)
+
 
 def recv_json(sock):
     """Read exactly one JSON control message (blocks until complete)."""
@@ -123,6 +171,7 @@ def recv_json(sock):
     length   = int.from_bytes(raw[1:], "big")
     body     = _recv_exact(sock, length)
     return json.loads(body.decode())
+
 
 def _recv_exact(sock, n):
     buf = b""

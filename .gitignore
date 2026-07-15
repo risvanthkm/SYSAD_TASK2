@@ -1,1 +1,6 @@
-__pycache__
+__pycache__/
+.vscode/
+.env/
+.session/
+server.crt
+server.key

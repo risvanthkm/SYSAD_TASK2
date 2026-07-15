@@ -4,14 +4,13 @@ import json
 import threading
 import time
 import os
-import sys
 import pathlib
 import tempfile
 import vlc
 from banner import *
 
-HOST = "localhost"
-PORT = 8080
+HOST = "0.0.0.0"
+PORT = 7070
 
 CHUNK_SIZE = 128
 BUFFER_THRESHOLD = 128 * 1024
@@ -30,6 +29,7 @@ playlists = []
 now_playing  = None
 rtt_ms = 0
 buffer_health = 0
+resume_info = None   # {"song_id","title","artist","chunk_offset"} or None, set at login
 
 audio_player  = None
 audio_file = None
@@ -127,7 +127,7 @@ def reconnect():
     return False
 
 def login():
-    global conn, token, session_id, songs, all_songs, history, playlists, username
+    global conn, token, session_id, songs, all_songs, history, playlists, username, resume_info
     print("            Welcome to DeltaPlay. Please Login.")
 
     username = input("username: ").strip()
@@ -172,8 +172,13 @@ def login():
     all_songs = list(songs)
     history = lib.get("history", [])
     playlists = lib.get("saved_playlists", [])
+    resume_info = lib.get("resume")
 
     print(f"Login OK. {len(songs)} songs in library, {len(playlists)} saved playlists.\n")
+    if resume_info:
+        print(f"You left off listening to '{resume_info.get('title', '?')}' "
+              f"by {resume_info.get('artist', '?')}.")
+        print("Type 'continue' to pick up where you left off.\n")
     return True
 
 
@@ -213,14 +218,20 @@ def listen_loop():
                 break
 
 def handle_server_msg(msg):
-    global songs, playlists
+    global songs, playlists, rtt_ms, all_songs
     cmd = msg.get("command") or msg.get("status") or msg.get("type")
 
     if cmd == "PONG":
         rtt_ms = (time.monotonic() - t0) * 1000
 
     elif cmd == "LIBRARY_UPDATED":
-        out("Server library changed - run 'library' to refresh")
+        #out("Server library changed - refreshing...")
+        send_json(conn, {"command": "GET_LIBRARY", "token": token})
+
+    elif cmd == "LIBRARY_DATA":
+        all_songs = msg.get("songs", [])
+        songs = list(all_songs)
+        out(f"Library refreshed - {len(songs)} songs now available. Run 'list' to view them.")
 
     elif cmd == "paused":
         out("Paused")
@@ -277,8 +288,19 @@ def buffer_report_loop():
         if not token or not conn:
             continue
         health = min(100, int((audio_bytes / BUFFER_THRESHOLD) * 100))
+
+        time_ms = 0
+        if audio_player:
+            try:
+                time_ms = audio_player.get_time()
+                # VLC might return -1 if the track has not started playing yet
+                if time_ms < 0:
+                    time_ms = 0
+            except Exception:
+                pass
+
         try:
-            send_json(conn, {"command": "BUFFER_STATUS", "token": token, "health": health})
+            send_json(conn, {"command": "BUFFER_STATUS", "token": token, "health": health, "time_ms" : time_ms})
         except Exception:
             pass
 
@@ -287,34 +309,24 @@ def cmd_list():
     if not songs:
         print("[no songs to show]")
         return
-    print(f" ID TITLE ARTIST GENRE ")
+
+    print(f"{'ID':<4}{'TITLE':<35}{'ARTIST':<25}{'GENRE'}")
     print("-" * 79)
     for i, s in enumerate(songs):
-        print(f"{i}{s.get('title','?')[:33]}{s.get('artist','?')[:23]}{s.get('genre')}")
+        title  = s.get('title', '?')[:33]
+        artist = s.get('artist', '?')[:23]
+        genre  = s.get('genre', '?')
+        print(f"{i:<4}{title:<35}{artist:<25}{genre}")
     print()
 
 
 def cmd_library():
-    global songs
-    songs = list(all_songs)
-    print(f"showing full library: {len(songs)} songs")
-    cmd_list()
+    send_json(conn, {"command": "GET_LIBRARY", "token": token})
+    print("Refreshing library from server...")
 
 
-def cmd_play(idx_str):
-    global now_playing, audio_file, audio_started, audio_bytes, audio_player
-
-    if not idx_str:
-        print("usage: play <index>   (run 'list' to see indices)")
-        return
-    try:
-        idx = int(idx_str)
-    except ValueError:
-        print("index must be a number")
-        return
-    if idx < 0 or idx >= len(songs):
-        print("index out of range")
-        return
+def reset_audio_temp():
+    global audio_file, audio_started, audio_bytes, audio_player
 
     audio_started = False
     audio_bytes   = 0
@@ -329,10 +341,44 @@ def cmd_play(idx_str):
             pass
     audio_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
 
-    song        = songs[idx]
+
+def cmd_play(idx_str):
+    global now_playing
+
+    if not idx_str:
+        print("usage: play <index>   (run 'list' to see indices)")
+        return
+    try:
+        idx = int(idx_str)
+    except ValueError:
+        print("index must be a number")
+        return
+    if idx < 0 or idx >= len(songs):
+        print("index out of range")
+        return
+
+    reset_audio_temp()
+
+    song = songs[idx]
     now_playing = song
     send_json(conn, {"command": "PLAY", "song_id": song["song_id"], "token": token})
     print(f"Requested to Play: {song['title']}")
+
+
+def cmd_continue():
+    """Resume the song the user was listening to last time the app was open,
+    picking up from the chunk the server saved ."""
+    global now_playing
+
+    if not resume_info:
+        print("nothing to resume - no saved playback position")
+        return
+
+    reset_audio_temp()
+
+    now_playing = {"title": resume_info.get("title", "?"), "artist": resume_info.get("artist", "?")}
+    send_json(conn, {"command": "RESUME_LAST", "token": token})
+    print(f"Resuming '{now_playing['title']}' where you left off...")
 
 
 def cmd_pause():
@@ -343,7 +389,7 @@ def cmd_pause():
 
 def cmd_resume():
     if audio_player:
-        audio_player.pause()  
+        audio_player.play()
     send_json(conn, {"command": "RESUME", "token": token})
 
 
@@ -366,10 +412,10 @@ def cmd_playlists():
     if not playlists:
         print("(no playlists yet)")
         return
-    print('#       NAME')
+    print(f"{'#':<6}{'NAME'}")
     print("-" * 40)
     for i, p in enumerate(playlists):
-        print(f"{i}    {p['playlist_name']}")
+        print(f"{i:<6}{p['playlist_name']}")
     print()
 
 
@@ -401,8 +447,12 @@ def cmd_load_playlist(idx_str):
     if not idx_str:
         print("usage: load_playlist <index> (run 'playlists')")
         return
-    
-    idx = int(idx_str)
+
+    try:
+        idx = int(idx_str)
+    except ValueError:
+        print("index must be a number")
+        return
 
     if idx < 0 or idx >= len(playlists):
         print("index out of range")
@@ -486,10 +536,13 @@ def cmd_history():
     if not history:
         print("(no listening history)")
         return
-    print('SONG ID       PLAYED AT')
+    
+    print(f"{'SONG ID':<15}{'PLAYED AT'}")
     print("-" * 35)
     for h in history:
-        print(f"{h.get('song_id'):<10}---{h.get('played_at') or '-':<25}")
+        song_id   = str(h.get('song_id', '?'))
+        played_at = h.get('played_at') or '-'
+        print(f"{song_id:<15}{played_at}")
     print()
 
 def command_loop():
@@ -525,6 +578,8 @@ def command_loop():
             cmd_pause()
         elif cmd == "resume":
             cmd_resume()
+        elif cmd == "continue":
+            cmd_continue()
         elif cmd == "stop":
             cmd_stop()
         elif cmd == "status":
