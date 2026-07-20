@@ -51,7 +51,7 @@ password_bf_ban_threshold = 10
 connection_attempts = {}
 connection_lock = threading.Lock()
 
-MAX_CONNECTIONS = 4     
+MAX_CONNECTIONS = 10   
 WITHIN_TIME = 60          
 
 
@@ -227,6 +227,17 @@ def connect(raw_conn, addr):
             state.socket = conn
             state.connected = True
             user_id = state.user_id
+            
+
+            cur.execute("SELECT username FROM users WHERE id = %s", (user_id,))
+            username = cur.fetchone()
+            username = username[0] if username else "unk"
+            
+            result = {"status":"ok", "username":username}
+
+            send_json(conn, result)
+            send_data(conn, user_id, cur)  
+
 
         else:
             send_json(conn, {"status": "error", "message": "unknown auth type"})
@@ -398,7 +409,7 @@ def send_song(conn, db_conn, user_id, song_id, song_path, cur, state, start_chun
     print("Song requested", song_path, "starting at chunk", start_chunk)
     state.current_track = song_id
     state.stream_thread = threading.Thread(
-        target=stream_song, args=(state, song_path, user_id, song_id), daemon=True
+        target=stream_song, args=(state, song_path), daemon=True
     )
     state.stream_thread.start()
 
@@ -542,9 +553,12 @@ def process_requests(req, db_conn, user_id, conn, cur, state):
         ]
         send_json(conn, {"command": "PLAYLIST_TRACKS", "tracks": track_list})
 
+    elif command == "RTT_UPDATE":
+        state.rtt_ms = req.get("rtt_ms", 0)
+
     elif command == "ADD_TO_PLAYLIST":
         playlist_id = req.get("playlist_id")
-        song_id     = req.get("song_id")
+        song_id = req.get("song_id")
         cur.execute(
             "SELECT playlist_id FROM playlists WHERE playlist_id = %s AND user_id = %s",
             (playlist_id, user_id)
