@@ -107,11 +107,10 @@ def reconnect():
         return False
     tok = saved["token"]
     sid = saved["session_id"]
-    print(tok, sid)
 
     for attempt in range(1, 4):
         delay = 5
-        out(f"[reconnect] attempt {attempt}/5 in {delay}s...")
+        out(f"Trying to Reconnect : Attempt {attempt}/5 in {delay}s...")
         time.sleep(delay)
         try:
             new_conn = make_tls_conn()
@@ -122,7 +121,6 @@ def reconnect():
                 return False
 
             if mt == "json" and resp.get("status") == "ok":
-                print("===========oKAY===========")
                 conn = new_conn
                 token = tok
                 session_id = sid
@@ -265,7 +263,7 @@ def handle_server_msg(msg):
     elif cmd == "LIBRARY_DATA":
         all_songs = msg.get("songs", [])
         songs = list(all_songs)
-        out(f"Library refreshed - {len(songs)} songs now available. Run 'list' to view them.")
+        #out(f"Library refreshed - {len(songs)} songs now available. Run 'list' to view them.")
 
     elif cmd == "paused":
         out("Paused")
