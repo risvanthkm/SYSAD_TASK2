@@ -9,8 +9,11 @@ import tempfile
 import vlc
 from banner import *
 
-HOST = "0.0.0.0"
-PORT = 7070
+# HOST = "0.0.0.0"
+# PORT = 7070
+
+HOST = "deltaplay.duckdns.org"
+PORT = 443
 
 CHUNK_SIZE = 128
 BUFFER_THRESHOLD = 128 * 1024
@@ -97,28 +100,57 @@ def make_tls_conn():
 
 
 def reconnect():
-    global conn, token, session_id
+    global conn, token, session_id, songs, all_songs, history, playlists, username, resume_info
 
     saved = load_session()
     if not saved:
         return False
     tok = saved["token"]
     sid = saved["session_id"]
+    print(tok, sid)
 
-    for attempt in range(1, 6):
-        delay = 2 ** (attempt - 1)
+    for attempt in range(1, 4):
+        delay = 5
         out(f"[reconnect] attempt {attempt}/5 in {delay}s...")
         time.sleep(delay)
         try:
             new_conn = make_tls_conn()
             send_json(new_conn, {"type": "RECONNECT", "token": tok, "session_id": sid})
             mt, resp = recv_msg(new_conn)
+            
+            if mt == "json" and resp.get("status") == "error":
+                return False
+
             if mt == "json" and resp.get("status") == "ok":
+                print("===========oKAY===========")
                 conn = new_conn
                 token = tok
                 session_id = sid
+                username = resp.get("username")
                 out(f"[reconnect] success, resuming at chunk {resp.get('resumed_at_chunk', 0)}")
+
+                lib = None
+                while lib is None:
+                    mt, data = recv_msg(conn)
+                    if data is None:
+                        print("Server closed before sending library")
+                        return False
+                    if mt == "json" and "songs" in data:
+                        lib = data
+
+                songs = lib.get("songs", [])
+                all_songs = list(songs)
+                history = lib.get("history", [])
+                playlists = lib.get("saved_playlists", [])
+                resume_info = lib.get("resume")
+
+                print(f"Login OK. {len(songs)} songs in library, {len(playlists)} saved playlists.\n")
+                if resume_info:
+                    print(f"You left off listening to '{resume_info.get('title', '?')}' "
+                        f"by {resume_info.get('artist', '?')}.")
+                    print("Type 'continue' to pick up where you left off.\n")
                 return True
+            
             new_conn.close()
         except Exception as e:
             out(f"[reconnect] attempt {attempt} failed: {e}")
@@ -138,7 +170,7 @@ def login():
     except Exception as e:
         print(f"Couldn't reach {HOST}:{PORT} >> {e}")
         return False
-
+    
     send_json(new_conn, {"type": "LOGIN", "username": username, "password": password})
 
     resp = None
@@ -199,12 +231,14 @@ def listen_loop():
             if mt == "json":
                 handle_server_msg(data)
 
-            elif mt == "audio":
+            elif mt == "audio": 
+                # if audio temp file not created
                 if audio_file is None:
                     continue
                 audio_file.write(data)
                 audio_file.flush()
                 audio_bytes += len(data)
+                # After buffering enough Audio we Play the music
                 if not audio_started and audio_bytes >= BUFFER_THRESHOLD:
                     audio_player  = vlc.MediaPlayer(audio_file.name)
                     audio_player.play()
@@ -252,8 +286,16 @@ def handle_server_msg(msg):
         out(f"Deleted id={pid}")
 
     elif cmd == "PLAYLIST_TRACKS":
-        songs = msg.get("tracks", [])
-        out(f"Loaded {len(songs)} tracks - run 'list' to view them")
+        pl_songs = msg.get("tracks", [])
+        print(f"{'ID':<4}{'TITLE':<35}{'ARTIST':<25}{'GENRE'}")
+        print("-" * 79)
+        for i, s in enumerate(pl_songs):
+            title  = s.get('title', '?')[:33]
+            artist = s.get('artist', '?')[:23]
+            genre  = s.get('genre', '?')
+            print(f"{i:<4}{title:<35}{artist:<25}{genre}")
+        print()
+        #out(f"Loaded {len(songs)} tracks - run 'list' to view them")
 
     elif cmd == "SONG_ADDED":
         out("Song added")
@@ -278,6 +320,8 @@ def heartbeat_loop():
             t0 = time.monotonic()
             send_json(conn, {"command": "PING", "token": token, "ts": t0})
             buffer_health = min(100, int((audio_bytes / BUFFER_THRESHOLD) * 100))
+            send_json(conn, {"command" : "RTT_UPDATE", "token" : token, "rtt_ms" : rtt_ms})
+
         except Exception:
             pass
 
@@ -620,8 +664,13 @@ def shutdown():
             pass
 
 def main():
-    if not login():
-        return
+    session_file = load_session()
+    success = False
+    if session_file:
+        success = reconnect()
+    if not success:
+        if not login():
+            return
 
     threading.Thread(target=listen_loop, daemon=True).start()
     threading.Thread(target=heartbeat_loop, daemon=True).start()
